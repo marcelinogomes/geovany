@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email in ["ajrpropecto.ang@gmail.com", "geovanymarcelino25@gmail.com"]
+      );
+    }
+    function isValidId(id) { return id is string && id.size() <= 128; }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'category'])
+        && data.name is string 
+        && data.category is string;
+    }
+
+    function isValidSettings(data) {
+      return data.keys().hasAll(['name'])
+        && data.name is string;
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['rating', 'comment', 'userId', 'userName', 'createdAt'])
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.comment is string && data.comment.size() <= 1000
+        && data.userId is string && data.userId == request.auth.uid
+        && data.userName is string
+        && data.userName.size() <= 100;
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidProduct(request.resource.data);
+      allow update: if isAdmin() && isValidProduct(request.resource.data);
+      allow delete: if isAdmin();
+
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow create: if isSignedIn() && isValidReview(request.resource.data) && request.resource.data.createdAt == request.time;
+        allow update: if false;
+        allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      }
+    }
+
+    match /admins/{adminId} {
+      allow read: if isSignedIn() && request.auth.uid == adminId;
+      allow create: if isSignedIn() && request.auth.token.email in ["ajrpropecto.ang@gmail.com", "geovanymarcelino25@gmail.com"] && request.auth.uid == adminId;
+      allow delete: if false; // Admins cannot delete themselves via client for safety
+      allow update: if false;
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidSettings(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}

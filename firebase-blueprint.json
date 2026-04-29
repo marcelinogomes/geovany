@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "product": {
+      "title": "Product",
+      "description": "A construction material product sold in the store",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "oldPrice": { "type": "number" },
+        "unit": { "type": "string" },
+        "image": { "type": "string" },
+        "brand": { "type": "string" },
+        "rating": { "type": "number" },
+        "description": { "type": "string" },
+        "id": { "type": "string" }
+      },
+      "required": ["name", "category", "price", "unit", "image", "brand"]
+    },
+    "admin": {
+      "title": "Admin",
+      "description": "User with administrative privileges",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" }
+      }
+    },
+    "settings": {
+      "title": "Store Settings",
+      "description": "Global configuration for the store",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "fullName": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "whatsappDisplay": { "type": "string" },
+        "address": { "type": "string" },
+        "hours": { "type": "string" },
+        "heroTitle": { "type": "string" },
+        "heroSubtitle": { "type": "string" },
+        "cityYear": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "product",
+      "description": "Collection of all products in the store"
+    },
+    "/admins/{adminId}": {
+      "schema": "admin",
+      "description": "Collection of administrator UIDs"
+    },
+    "/settings/{settingId}": {
+      "schema": "settings",
+      "description": "Global store settings"
+    }
+  }
+}
