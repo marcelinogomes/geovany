@@ -42,6 +42,33 @@
         "cityYear": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "notification": {
+      "title": "Notification",
+      "description": "User notification",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "read": { "type": "boolean" },
+        "recipient": { "type": "string" }
+      },
+      "required": ["userId", "message", "createdAt", "read", "recipient"]
+    },
+    "review": {
+      "title": "Review",
+      "description": "Product review",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "rating": { "type": "number" },
+        "comment": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "userId", "userName", "rating", "comment", "createdAt"]
     }
   },
   "firestore": {
@@ -56,6 +83,14 @@
     "/settings/{settingId}": {
       "schema": "settings",
       "description": "Global store settings"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "notification",
+      "description": "Notifications for users"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "review",
+      "description": "Product reviews"
     }
   }
 }

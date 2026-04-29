@@ -12,13 +12,14 @@ import {
   Wrench, Droplets, Layers, Hammer, Bell, AlertTriangle, Eye, Ticket, Tag
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { toast, Toaster } from "sonner";
 import imageCompression from 'browser-image-compression';
 import { 
   db, auth, login, logout, handleFirestoreError, storage, getUserFriendlyErrorMessage 
 } from "./firebase";
 import { 
-  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, writeBatch 
+  collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, writeBatch, query, where, orderBy 
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -81,7 +82,16 @@ function AdminPanel({ isOpen, onClose, initialProduct, products, onEdit, setting
   const [settingsData, setSettingsData] = useState(() => ({...DEFAULT_SETTINGS, ...(settings || {})}));
   const [selectedIds, setSelectedIds] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [bulkPrice, setBulkPrice] = useState("");
+
+  // Debounce the search term
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
 
   // Sync settingsData when settings prop changes (e.g. from firestore load)
   useEffect(() => {
@@ -225,7 +235,7 @@ function AdminPanel({ isOpen, onClose, initialProduct, products, onEdit, setting
     if (!p) return false;
     const safeName = (p.name || "").toLowerCase();
     const safeBrand = (p.brand || "").toLowerCase();
-    const search = (searchTerm || "").toLowerCase();
+    const search = (debouncedSearchTerm || "").toLowerCase();
     const matchSearch = safeName.includes(search) || safeBrand.includes(search);
     const matchCat = categoryFilter === "all" || p.category === categoryFilter;
     return matchCat && matchSearch;
@@ -436,7 +446,7 @@ function AdminPanel({ isOpen, onClose, initialProduct, products, onEdit, setting
                           <div className="flex gap-2 mt-4 overflow-x-auto pb-2 noscrollbar">
                             {(Array.isArray(formData?.images) ? formData.images : []).map((img, i) => (
                               <div key={i} className="relative w-20 h-20 bg-zinc-100 rounded-xl overflow-hidden shrink-0 border border-zinc-200">
-                                <img src={img} className="w-full h-full object-cover" alt="Preview" />
+                                <img src={img} className="w-full h-full object-cover" alt="Preview" loading="lazy" decoding="async" />
                                 <button type="button" onClick={() => {
                                   const imagesArr = Array.isArray(formData?.images) ? formData.images : [];
                                   const newImgs = imagesArr.filter((_, idx) => idx !== i);
@@ -614,7 +624,7 @@ function AdminPanel({ isOpen, onClose, initialProduct, products, onEdit, setting
             <div className="flex justify-end p-4 absolute top-0 right-0 z-20 pointer-events-auto">
               <button onClick={() => setSelectedImage(null)} className="p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-2xl transition shadow-lg text-white"><X size={24} /></button>
             </div>
-            <img src={selectedImage} className="max-w-full max-h-[90vh] object-contain pointer-events-auto rounded-3xl" alt="Zoom" />
+            <img src={selectedImage} className="max-w-full max-h-[90vh] object-contain pointer-events-auto rounded-3xl bg-zinc-800" alt="Zoom" loading="lazy" decoding="async" />
           </motion.div>
         </div>
       )}
@@ -675,24 +685,83 @@ export class ErrorBoundary extends React.Component<{children: React.ReactNode}, 
   }
 }
 
-// User-friendly error messages
-const getUserFriendlyErrorMessage = (error: any) => {
-  let message = "Ocorreu um erro inesperado.";
-  try {
-    const errObj = typeof error.message === 'string' ? JSON.parse(error.message) : { error: String(error) };
-    const errCode = errObj.error.toLowerCase();
-    
-    if (errCode.includes("permission-denied")) {
-      message = "Você não tem permissão para realizar esta ação.";
-    } else if (errCode.includes("unavailable")) {
-      message = "O serviço está temporariamente indisponível. Tente novamente mais tarde.";
-    } else if (errCode.includes("quota-exceeded")) {
-      message = "Lamentamos, mas atingimos o limite de uso diário. Tente novamente amanhã.";
+const ReviewsSection = ({ productId }) => {
+  const [reviews, setReviews] = useState([]);
+  const [newReview, setNewReview] = useState({ rating: 5, comment: "" });
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!productId) return;
+    const q = query(collection(db, "reviews"), where("productId", "==", productId), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setReviews(data);
+    });
+    return unsub;
+  }, [productId]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!auth.currentUser) { toast.error("Você precisa estar logado para avaliar!"); return; }
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, "reviews"), {
+        productId,
+        userId: auth.currentUser.uid,
+        userName: auth.currentUser.displayName || "Usuário",
+        rating: Number(newReview.rating),
+        comment: newReview.comment,
+        createdAt: new Date().toISOString()
+      });
+      setNewReview({ rating: 5, comment: "" });
+      toast.success("Avaliação enviada!");
+    } catch (err) {
+      toast.error(getUserFriendlyErrorMessage(err));
+    } finally {
+      setSubmitting(false);
     }
-  } catch (e) {
-    // Falls back to generic message
-  }
-  return message;
+  };
+
+  return (
+    <div className="mt-8 border-t border-zinc-100 pt-8">
+      <h3 className="text-lg font-black uppercase tracking-tight mb-4 flex items-center gap-2">
+        <Star size={18} className="text-amber-500" />
+        Avaliações ({reviews.length})
+      </h3>
+      
+      {auth.currentUser && (
+        <form onSubmit={handleSubmit} className="bg-zinc-50 p-4 rounded-2xl mb-6">
+          <div className="mb-2">
+            <label className="text-[10px] font-black uppercase text-zinc-500 mb-1 block">Sua Avaliação (1-5)</label>
+            <select value={newReview.rating} onChange={e => setNewReview({...newReview, rating: Number(e.target.value)})} className="w-full p-2 bg-white border border-zinc-200 rounded-lg outline-none">
+              {[5,4,3,2,1].map(r => <option key={r} value={r}>{r} Estrelas</option>)}
+            </select>
+          </div>
+          <div className="mb-2">
+            <label className="text-[10px] font-black uppercase text-zinc-500 mb-1 block">Seu Comentário</label>
+            <textarea value={newReview.comment} onChange={e => setNewReview({...newReview, comment: e.target.value})} className="w-full p-2 bg-white border border-zinc-200 rounded-lg outline-none" required />
+          </div>
+          <button disabled={submitting} className="w-full py-2 bg-amber-600 text-white font-black rounded-lg uppercase text-[10px] tracking-widest hover:bg-amber-500 disabled:bg-zinc-400">
+            {submitting ? "Enviando..." : "Enviar Avaliação"}
+          </button>
+        </form>
+      )}
+
+      <div className="space-y-4">
+        {reviews.map(r => (
+          <div key={r.id} className="p-4 bg-zinc-50 rounded-2xl">
+            <div className="flex justify-between items-center mb-2">
+              <span className="font-black text-sm uppercase tracking-tight">{r.userName}</span>
+              <span className="text-[10px] font-bold text-amber-600 px-2 py-1 bg-amber-100 rounded-full">
+                {r.rating} ⭐
+              </span>
+            </div>
+            <p className="text-sm text-zinc-600">{r.comment}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 // --- App Principal ---
@@ -1227,7 +1296,6 @@ export default function App() {
                       </div>
                       <span className="text-[10px] text-zinc-500 tabular-nums">{product.rating}</span>
                       <div className="w-px h-2.5 bg-zinc-300 mx-1"></div>
-                      <span className="text-[10px] text-zinc-500">115 vendidos</span>
                     </div>
 
                     <p className={`text-[9px] font-bold mt-2 ${(!product.stock || product.stock === 0) ? 'text-rose-500' : 'text-zinc-400'}`}>
@@ -1487,7 +1555,7 @@ export default function App() {
               </div>
 
               {cart.length > 0 && (
-                <div className="p-8 bg-zinc-50 border-t border-zinc-200">
+                <div className="p-8 bg-zinc-50 border-t border-zinc-200 sticky bottom-0 z-10">
                   <div className="space-y-3 mb-8">
                     <div className="flex justify-between items-center group">
                       <span className="text-zinc-400 font-bold uppercase text-[10px] tracking-widest">Subtotal</span>
@@ -1500,9 +1568,34 @@ export default function App() {
                     </div>
                   </div>
                   <button 
-                    onClick={() => {
+                    onClick={async () => {
                       const msg = `*Novo Pedido ${settings?.name || "Loja"}* 🚀\n\n*Itens do Pedido:*\n${cart.map(i => `• ${i.quantity}x ${i.name} - R$ ${(Number(i.price || 0) * Number(i.quantity || 1)).toFixed(2)}`).join("\n")}\n\n*Total final: R$ ${Number(finalTotal || 0).toFixed(2)}*\n\nPor favor, informe a forma de pagamento!`;
                       window.open(`https://wa.me/${settings?.whatsapp || ""}?text=${encodeURIComponent(msg)}`);
+                      
+                      try {
+                        if (auth.currentUser) {
+                          await addDoc(collection(db, "notifications"), {
+                            userId: auth.currentUser.uid,
+                            message: "Pedido realizado com sucesso!",
+                            createdAt: new Date().toISOString(),
+                            read: false,
+                            recipient: "user"
+                          });
+                        }
+                        await addDoc(collection(db, "notifications"), {
+                          userId: "admin",
+                          message: `Novo pedido recebido: ${Number(finalTotal || 0).toFixed(2)}`,
+                          createdAt: new Date().toISOString(),
+                          read: false,
+                          recipient: "admin"
+                        });
+                        setCart([]);
+                        localStorage.removeItem("cart");
+                        toast.success("Pedido registrado e notificação enviada!");
+                      } catch (err) {
+                        console.error("Erro ao registrar pedido:", err);
+                        toast.error("Erro ao registrar pedido.");
+                      }
                     }}
                     className="w-full py-5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-3xl transition shadow-2xl shadow-emerald-200 flex items-center justify-center gap-4 uppercase tracking-[0.15em] text-xs"
                   >
@@ -1557,13 +1650,17 @@ export default function App() {
               
               <div className="bg-white flex flex-col p-4 sm:p-6 relative overflow-hidden">
                 <div className="flex-1 flex items-center justify-center w-full border border-zinc-100 p-2 relative aspect-square">
-                  <img 
-                    src={(selectedProduct.images && selectedProduct.images.length > 0 && selectedProduct.images[currentImageIndex]) ? selectedProduct.images[currentImageIndex] : selectedProduct.image || "https://via.placeholder.com/400"} 
-                    className="absolute inset-0 w-full h-full object-contain p-2 transition-opacity duration-300" 
-                    alt={selectedProduct.name} 
-                    loading="lazy"
-                    decoding="async"
-                  />
+                  <TransformWrapper>
+                    <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <img 
+                        src={(selectedProduct.images && selectedProduct.images.length > 0 && selectedProduct.images[currentImageIndex]) ? selectedProduct.images[currentImageIndex] : selectedProduct.image || "https://via.placeholder.com/400"} 
+                        className="w-full h-full object-contain p-2 transition-opacity duration-300" 
+                        alt={selectedProduct.name} 
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </TransformComponent>
+                  </TransformWrapper>
                 </div>
                 
                 {selectedProduct.images && selectedProduct.images.length > 1 && (
@@ -1585,7 +1682,7 @@ export default function App() {
 
               <div className="p-4 sm:p-6 flex flex-col justify-start md:overflow-y-auto h-full">
                 <h2 className="text-xl sm:text-2xl font-medium text-zinc-900 mb-3 leading-tight">{selectedProduct.name}</h2>
-                
+                  
                 <div className="flex items-center gap-4 mb-4">
                   <div className="flex items-center text-[#ee4d2d] underline decoration-[#ee4d2d]">
                     <span className="text-base font-medium mr-1">{selectedProduct.rating}</span>
@@ -1594,16 +1691,6 @@ export default function App() {
                     <Star className="w-3.5 h-3.5 fill-[#ee4d2d]" />
                     <Star className="w-3.5 h-3.5 fill-[#ee4d2d]" />
                     <Star className="w-3.5 h-3.5 fill-[#ee4d2d]" />
-                  </div>
-                  <div className="w-px h-4 bg-zinc-300"></div>
-                  <div className="flex items-center text-zinc-800">
-                    <span className="text-base font-medium border-b border-zinc-800 mr-1">29</span> 
-                    <span className="text-sm text-zinc-500">Avaliações</span>
-                  </div>
-                  <div className="w-px h-4 bg-zinc-300"></div>
-                  <div className="flex items-center text-zinc-800">
-                    <span className="text-base font-medium mr-1">115</span> 
-                    <span className="text-sm text-zinc-500">vendidos</span>
                   </div>
                 </div>
 
@@ -1695,15 +1782,16 @@ export default function App() {
                       window.open(`https://wa.me/${settings.whatsapp}?text=${encodeURIComponent(msg)}`);
                     }}
                     disabled={(selectedProduct.stock ?? 0) <= 0}
-                    className={`flex-1 py-3 px-4 rounded-sm transition flex items-center justify-center text-sm ${
+                    className={`flex-1 py-3 px-4 rounded-sm transition-all duration-300 flex items-center justify-center text-sm ${
                       (selectedProduct.stock ?? 0) <= 0
                         ? "bg-zinc-100 text-zinc-400 cursor-not-allowed border border-zinc-200"
-                        : "bg-[#ee4d2d] text-white hover:bg-[#d73211]"
+                        : "bg-[#ee4d2d] text-white hover:bg-[#d73211] hover:-translate-y-0.5 active:bg-[#bf2e12] active:translate-y-0"
                     }`}
                   >
                     Comprar Agora
                   </button>
                 </div>
+                <ReviewsSection productId={selectedProduct.id} />
               </div>
             </motion.div>
           </div>

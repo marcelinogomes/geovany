@@ -26,7 +26,8 @@ service cloud.firestore {
     }
 
     function isValidReview(data) {
-      return data.keys().hasAll(['rating', 'comment', 'userId', 'userName', 'createdAt'])
+      return data.keys().hasAll(['productId', 'rating', 'comment', 'userId', 'userName', 'createdAt'])
+        && data.productId is string && data.productId.size() <= 128
         && data.rating is number && data.rating >= 1 && data.rating <= 5
         && data.comment is string && data.comment.size() <= 1000
         && data.userId is string && data.userId == request.auth.uid
@@ -39,13 +40,13 @@ service cloud.firestore {
       allow create: if isAdmin() && isValidProduct(request.resource.data);
       allow update: if isAdmin() && isValidProduct(request.resource.data);
       allow delete: if isAdmin();
+    }
 
-      match /reviews/{reviewId} {
-        allow read: if true;
-        allow create: if isSignedIn() && isValidReview(request.resource.data) && request.resource.data.createdAt == request.time;
-        allow update: if false;
-        allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      }
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidReview(request.resource.data) && request.resource.data.createdAt == request.time;
+      allow update: if false;
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
 
     match /admins/{adminId} {
